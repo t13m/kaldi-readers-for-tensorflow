@@ -57,6 +57,7 @@ namespace tensorflow {
         } else {
             return Status(error::UNAVAILABLE, "Unknown Kaldi Post or Ali: " + header_buffer);
         }
+        return Status::OK();
     }
 
     class ReadKaldiPostAndAliOp : public OpKernel {
