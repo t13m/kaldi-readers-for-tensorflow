@@ -41,6 +41,7 @@ message("TF_LIB is set: ${TF_LIB}")
 
 set(SOURCE_FILES
         kaldi-matrix.cc
+        kaldi-matrix-direct.cc
         kaldi-ali.cc
         shape-funcs.cc
         )
