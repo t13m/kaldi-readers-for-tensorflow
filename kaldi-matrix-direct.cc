@@ -115,7 +115,7 @@ namespace tensorflow {
                         context, context->allocate_output("output", out_shape, &output_tensor));
                 auto out = output_tensor->flat<float>();
 
-                uint64 remaining_size = h.num_cols * (h.num_rows * sizeof(PerColHeader));
+                uint64 remaining_size = h.num_cols * (h.num_rows + sizeof(PerColHeader));
                 string compressed_buffer;
                 compressed_buffer.resize(remaining_size);
                 OP_REQUIRES_OK(context, file->Read(ark_offset + rel_offset, remaining_size, &data_holder,
