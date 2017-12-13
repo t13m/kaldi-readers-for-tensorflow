@@ -149,12 +149,108 @@ namespace tensorflow {
                         *(out_data + i * h.num_cols + j) = *(out_data + (left_padding_ + h.num_rows - 1) * h.num_cols + j);
                     }
                 }
+            } else if (data_holder == "CM2") {
+                rel_offset ++;
+                GlobalHeader h;
+                h.format = 2;
+                OP_REQUIRES_OK(context, file->Read(ark_offset + rel_offset, sizeof(h) - 4, &data_holder,
+                                                   reinterpret_cast<char*>(&h) + 4));
+                rel_offset += (sizeof(h) - 4);
+                out_shape.AddDim(left_padding_ + h.num_rows + right_padding_);
+                out_shape.AddDim(h.num_cols);
+                Tensor* output_tensor = nullptr;
+                OP_REQUIRES_OK(
+                        context, context->allocate_output("output", out_shape, &output_tensor));
+                auto out = output_tensor->flat<float>();
+
+                uint64 size = DataSize(h);
+                uint64 remaining_size = size - sizeof(GlobalHeader);
+                string compressed_buffer;
+                compressed_buffer.resize(remaining_size);
+                OP_REQUIRES_OK(context, file->Read(ark_offset + rel_offset, remaining_size, &data_holder,
+                                                   &compressed_buffer[0]));
+                rel_offset += remaining_size;
+
+                float* out_data = out.data();
+                const char* in_data = compressed_buffer.data();
+
+                const uint16 *in_data_uint16 = reinterpret_cast<const uint16*>(in_data);
+                float min_value = h.min_value;
+                float increment = h.range * (1.0 / 65535.0);
+                for (int64 i = left_padding_; i < left_padding_ + h.num_rows; i++) {
+                    for (int64 j = 0; j < h.num_cols; j++) {
+                        *(out_data + i * h.num_cols + j) = min_value + in_data_uint16[j] * increment;
+                    }
+                    in_data_uint16 += h.num_cols;
+                }
+                for (int64 i = 0; i < left_padding_; i ++) {
+                    for (int j = 0; j < h.num_cols; j ++) {
+                        *(out_data + i * h.num_cols + j) = *(out_data + left_padding_ * h.num_cols + j);
+                    }
+                }
+                for (int64 i = left_padding_ + h.num_rows; i < left_padding_ + h.num_rows + right_padding_; i ++) {
+                    for (int j = 0; j < h.num_cols; j ++) {
+                        *(out_data + i * h.num_cols + j) = *(out_data + (left_padding_ + h.num_rows - 1) * h.num_cols + j);
+                    }
+                }
+            } else if (data_holder == "CM3") {
+                rel_offset ++;
+                GlobalHeader h;
+                h.format = 3;
+                OP_REQUIRES_OK(context, file->Read(ark_offset + rel_offset, sizeof(h) - 4, &data_holder,
+                                                   reinterpret_cast<char*>(&h) + 4));
+                rel_offset += (sizeof(h) - 4);
+                out_shape.AddDim(left_padding_ + h.num_rows + right_padding_);
+                out_shape.AddDim(h.num_cols);
+                Tensor* output_tensor = nullptr;
+                OP_REQUIRES_OK(
+                        context, context->allocate_output("output", out_shape, &output_tensor));
+                auto out = output_tensor->flat<float>();
+
+                uint64 size = DataSize(h);
+                uint64 remaining_size = size - sizeof(GlobalHeader);
+                string compressed_buffer;
+                compressed_buffer.resize(remaining_size);
+                OP_REQUIRES_OK(context, file->Read(ark_offset + rel_offset, remaining_size, &data_holder,
+                                                   &compressed_buffer[0]));
+                rel_offset += remaining_size;
+
+                float* out_data = out.data();
+                const char* in_data = compressed_buffer.data();
+
+                float min_value = h.min_value, increment = h.range * (1.0 / 255.0);
+                const uint8 *in_data_bytes = reinterpret_cast<const uint8*>(in_data);
+                for (int64 i = left_padding_; i < left_padding_ + h.num_rows; i++) {
+                    for (int64 j = 0; j < h.num_cols; j ++) {
+                        *(out_data + i * h.num_cols + j) = h.min_value + in_data_bytes[j] * increment;
+                    }
+                    in_data_bytes += h.num_cols;
+                }
+                for (int64 i = 0; i < left_padding_; i ++) {
+                    for (int j = 0; j < h.num_cols; j ++) {
+                        *(out_data + i * h.num_cols + j) = *(out_data + left_padding_ * h.num_cols + j);
+                    }
+                }
+                for (int64 i = left_padding_ + h.num_rows; i < left_padding_ + h.num_rows + right_padding_; i ++) {
+                    for (int j = 0; j < h.num_cols; j ++) {
+                        *(out_data + i * h.num_cols + j) = *(out_data + (left_padding_ + h.num_rows - 1) * h.num_cols + j);
+                    }
+                }
             } else {
-                OP_REQUIRES_OK(context, Status(error::UNAVAILABLE, "Unknown Kaldi Matrix."));
+                OP_REQUIRES_OK(context, Status(error::UNAVAILABLE,
+                                               "Unknown Kaldi Matrix:" + data_holder.ToString() +
+                                               " When reading \"" + half_scp_line + "\"" +
+                                               " Ark: " + ark_path +
+                                               " OFFSET: " + std::to_string(ark_offset) ));
             }
         }
     private:
         int64 left_padding_, right_padding_;
+        enum DataFormat {
+            kOneByteWithColHeaders = 1,
+            kTwoByte = 2,
+            kOneByte = 3
+        };
         struct GlobalHeader {
             int32 format;     // Represents the enum DataFormat.
             float min_value;  // min_value and range represent the ranges of the integer
@@ -183,6 +279,19 @@ namespace tensorflow {
                 return p25 + (p75 - p25) * (value - 64) * (1/128.0f);
             } else {
                 return p75 + (p100 - p75) * (value - 192) * (1/63.0f);
+            }
+        }
+        uint64 DataSize(const GlobalHeader& header) {
+            DataFormat format = static_cast<DataFormat>(header.format);
+            if (format == kOneByteWithColHeaders) {
+                return sizeof(GlobalHeader) +
+                       header.num_cols * (sizeof(PerColHeader) + header.num_rows);
+            } else if (format == kTwoByte) {
+                return sizeof(GlobalHeader) +
+                       2 * header.num_rows * header.num_cols;
+            } else {
+                return sizeof(GlobalHeader) +
+                       header.num_rows * header.num_cols;
             }
         }
     };
