@@ -23,6 +23,23 @@ execute_process(
         RESULT_VARIABLE RESULT_TF_LIB
         OUTPUT_STRIP_TRAILING_WHITESPACE
 )
+
+execute_process(
+  COMMAND ${PYTHONBIN} -c "import tensorflow as tf; print(' '.join(tf.sysconfig.get_compile_flags()))"
+  OUTPUT_VARIABLE DEFAULT_TF_CXX_FLAGS
+  ERROR_VARIABLE ERROR_TF_CXX_FLAGS
+  RESULT_VARIABLE RESULT_TF_CXX_FLAGS
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+execute_process(
+  COMMAND ${PYTHONBIN} -c "import tensorflow as tf; print(' '.join(tf.sysconfig.get_link_flags()))"
+  OUTPUT_VARIABLE DEFAULT_TF_LINK_FLAGS
+  ERROR_VARIABLE ERROR_TF_LINK_FLAGS
+  RESULT_VARIABLE RESULT_TF_LINK_FLAGS
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${DEFAULT_TF_CXX_FLAGS} -std=c++11" )
+set( CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${DEFAULT_TF_LINK_FLAGS}" )
 #message("TF_INC is set: ${DEFAULT_TF_INC}")
 #message("TF_LIB is set: ${DEFAULT_TF_LIB}")
 #set(TF_INC "${DEFAULT_TF_INC}" CACHE PATH "Path of tensorflow including files")
@@ -47,10 +64,8 @@ set(SOURCE_FILES
         )
 
 add_library(kaldi_readers SHARED)
-target_compile_definitions(kaldi_readers
-        PUBLIC
-        -D_GLIBCXX_USE_CXX11_ABI=0
-        )
+
+
 # -fPIC
 set_property(TARGET kaldi_readers PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_sources(kaldi_readers

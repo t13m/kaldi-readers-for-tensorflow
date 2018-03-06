@@ -129,7 +129,7 @@ scpline: scalar. /path/to/ark.file:12345
                         errors::InvalidArgument(
                                 "DecodeKaldiArk requires input string size = 1"
                         )
-            )
+            );
             const string& in_str = flat_in(0);
             str_size = in_str.size();
 

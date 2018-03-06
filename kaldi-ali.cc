@@ -117,6 +117,7 @@ scpline: scalar. /path/to/ark.file:12345
         explicit DecodeKaldiAliOp(OpKernelConstruction* context) : OpKernel(context) {
             OP_REQUIRES_OK(context, context->GetAttr("out_type", &out_type_));
             OP_REQUIRES_OK(context, context->GetAttr("is_reading_post", &is_reading_post_));
+            OP_REQUIRES_OK(context, context->GetAttr("merge", &merge_));
         }
 
         void Compute(OpKernelContext* context) override {
@@ -127,14 +128,35 @@ scpline: scalar. /path/to/ark.file:12345
                         errors::InvalidArgument(
                                 "DecodeKaldiAliOp requires input string size = 1"
                         )
-            )
+            );
             const string& in_str = flat_in(0);
             str_size = in_str.size();
 
             const char* in_data = reinterpret_cast<const char*>(flat_in(0).data());
             TensorShape out_shape;
             int32 num_elem = *reinterpret_cast<const int32*>(in_data + 1);
-            out_shape.AddDim(num_elem);
+            if (!merge_) {
+                out_shape.AddDim(num_elem);
+            } else {
+                int32 prev_elem = -1;
+                int32 count = 0;
+                const char* p = in_data + 5;
+                for (int32 frame_idx = 0; frame_idx < num_elem; frame_idx ++) {
+                    int32 curr_elem;
+                    if (is_reading_post_) {
+                        curr_elem = *reinterpret_cast<const int32*>(p + 5 + 1);
+                        p += 15;
+                    } else {
+                        curr_elem = *reinterpret_cast<const int32*>(p + 1);
+                        p += 5;
+                    }
+                    if (curr_elem != prev_elem) {
+                        count ++;
+                        prev_elem = curr_elem;
+                    }
+                }
+                out_shape.AddDim(count);
+            }
 
             if (str_size == -1 || str_size == 0) {  // Empty input
                 Tensor* output_tensor = nullptr;
@@ -150,21 +172,43 @@ scpline: scalar. /path/to/ark.file:12345
 
             int32* out_data = out.data();
             const char* in_bytes = in_data + 5;
-            if (is_reading_post_) {
-                for (int32 frame_idx = 0; frame_idx < num_elem; frame_idx++) {
-                    out_data[frame_idx] = *reinterpret_cast<const int32*>(in_bytes + 5 + 1);
-                    in_bytes += 15;
+            if (!merge_) {
+                if (is_reading_post_) {
+                    int32 prev_elem = -1;
+                    for (int32 frame_idx = 0; frame_idx < num_elem; frame_idx++) {
+                        out_data[frame_idx] = *reinterpret_cast<const int32 *>(in_bytes + 5 + 1);
+                        in_bytes += 15;
+                    }
+                } else {
+                    for (int32 frame_idx = 0; frame_idx < num_elem; frame_idx++) {
+                        out_data[frame_idx] = *reinterpret_cast<const int32 *>(in_bytes + 1);
+                        in_bytes += 5;
+                    }
                 }
             } else {
+                int32 prev_elem = -1;
+                int32 count = 0;
                 for (int32 frame_idx = 0; frame_idx < num_elem; frame_idx++) {
-                    out_data[frame_idx] = *reinterpret_cast<const int32*>(in_bytes + 1);
-                    in_bytes += 5;
+                    int32 curr_elem;
+                    if (is_reading_post_) {
+                        curr_elem = *reinterpret_cast<const int32*>(in_bytes + 5 + 1);
+                        in_bytes += 15;
+                    } else {
+                        curr_elem = *reinterpret_cast<const int32*>(in_bytes + 1);
+                        in_bytes += 5;
+                    }
+                    if (curr_elem != prev_elem) {
+                        out_data[count] = curr_elem;
+                        count ++;
+                        prev_elem = curr_elem;
+                    }
                 }
             }
         }
 
     private:
         bool is_reading_post_;
+        bool merge_;
         DataType out_type_;
 
     };
@@ -176,6 +220,7 @@ scpline: scalar. /path/to/ark.file:12345
             .Output("output: out_type")
             .Attr("out_type: {int32}")
             .Attr("is_reading_post: bool")
+            .Attr("merge: bool")
             .SetShapeFn(shape_inference::UnknownShape)
             .Doc(R"doc(
 Reinterpret the bytes of a string as a kaldi ali

@@ -20,7 +20,7 @@ def main():
     for rspec_value in scplist:
         feats = sess.run(feats_value, feed_dict={rspec: rspec_value})
         print(rspec_value)
-        print(feats)
+        print(feats.shape)
 
 
 if __name__ == "__main__":
